@@ -11,6 +11,8 @@ import {
   renderRSIIndicator,
   renderMACDIndicator,
   useIndicatorData,
+  useChartTooltip,
+  ChartTooltip,
 } from "./chart/index";
 
 const Chart = ({ candles, volumes, indicators = [] }: ChartProps) => {
@@ -21,6 +23,10 @@ const Chart = ({ candles, volumes, indicators = [] }: ChartProps) => {
   // Calculate indicators using custom hook
   const indicatorData = useIndicatorData(candles, indicators);
 
+  // Tooltip functionality
+  const { tooltipData, handleCrosshairMove, handleMouseLeave } =
+    useChartTooltip(indicatorData, candles, volumes);
+
   useEffect(() => {
     if (chartContainerRef.current && candles.length && volumes.length) {
       const width = chartContainerRef.current.clientWidth;
@@ -30,6 +36,9 @@ const Chart = ({ candles, volumes, indicators = [] }: ChartProps) => {
       const chartOptions = createChartOptions(theme, width, height);
       const chart = createChart(chartContainerRef.current, chartOptions);
       chartRef.current = chart;
+
+      // Subscribe to crosshair events for tooltip
+      chart.subscribeCrosshairMove(handleCrosshairMove);
 
       // Pane 0 (Main) - Create main series
       createCandlestickSeries(chart, theme, candles, 0);
@@ -68,7 +77,7 @@ const Chart = ({ candles, volumes, indicators = [] }: ChartProps) => {
         chartRef.current = null;
       }
     };
-  }, [candles, volumes, indicators, indicatorData, theme]);
+  }, [candles, volumes, indicators, indicatorData, theme, handleCrosshairMove]);
 
   return (
     <div
@@ -80,8 +89,12 @@ const Chart = ({ candles, volumes, indicators = [] }: ChartProps) => {
         border: "none",
         padding: 0,
         margin: 0,
+        position: "relative",
       }}
-    />
+      onMouseLeave={handleMouseLeave}
+    >
+      <ChartTooltip data={tooltipData} />
+    </div>
   );
 };
 

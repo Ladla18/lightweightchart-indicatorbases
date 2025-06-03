@@ -1,5 +1,6 @@
 // Types
 export * from "./types";
+export * from "./tooltipTypes";
 
 // Configuration
 export * from "./chartConfig";
@@ -12,3 +13,7 @@ export * from "./indicatorRenderers";
 
 // Hooks
 export * from "./chartHooks";
+export * from "./useChartTooltip";
+
+// Components
+export { default as ChartTooltip } from "./ChartTooltip";
