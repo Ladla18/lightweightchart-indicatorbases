@@ -37,10 +37,10 @@ export const parseAlphaVantageIntraday = (data: any) => {
     const unixTime = Math.floor(new Date(time).getTime() / 1000);
     candles.push({
       time: unixTime,
-      open: parseFloat(values["1. open"]),
-      high: parseFloat(values["2. high"]),
-      low: parseFloat(values["3. low"]),
-      close: parseFloat(values["4. close"]),
+      open: parseFloat(values["1. open"] ?? "0"),
+      high: parseFloat(values["2. high"] ?? "0"),
+      low: parseFloat(values["3. low"] ?? "0"),
+      close: parseFloat(values["4. close"] ?? "0"),
     });
     volumes.push({
       time: unixTime,
@@ -53,7 +53,7 @@ export const parseAlphaVantageIntraday = (data: any) => {
           "0"
       ),
       color:
-        parseFloat(values["4. close"]) >= parseFloat(values["1. open"])
+        parseFloat(values["4. close"] ?? "0") >= parseFloat(values["1. open"] ?? "0")
           ? "#26a69a"
           : "#ef5350",
     });

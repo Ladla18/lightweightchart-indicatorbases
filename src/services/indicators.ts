@@ -18,10 +18,10 @@ export function calculateSMA(candles: Candle[], period = 14) {
     }
   }
 
-  // Convert to result format, only including non-null values
+  // Convert to result format, only including non-null values and defined candles
   for (let i = 0; i < candles.length; i++) {
-    if (values[i] !== null) {
-      result.push({ time: candles[i].time, value: values[i]! });
+    if (values[i] !== null && candles[i] && candles[i] !== undefined) {
+      result.push({ time: candles[i]!.time, value: values[i]! });
     }
   }
 
@@ -33,11 +33,13 @@ export function calculateEMA(candles: Candle[], period = 14) {
   if (candles.length < period) return result;
 
   const values: (number | null)[] = new Array(candles.length).fill(null);
-  let emaPrev = candles[0]?.close;
+  let emaPrev: number = candles[0]?.close ?? 0;
   const k = 2 / (period + 1);
 
   for (let i = 0; i < candles.length; i++) {
-    const close = candles[i].close;
+    const candle = candles[i];
+    if (!candle) continue;
+    const close = candle.close;
     if (i === 0) {
       emaPrev = close;
       continue;
@@ -48,10 +50,10 @@ export function calculateEMA(candles: Candle[], period = 14) {
     }
   }
 
-  // Convert to result format, only including non-null values
+  // Convert to result format, only including non-null values and defined candles
   for (let i = 0; i < candles.length; i++) {
-    if (values[i] !== null) {
-      result.push({ time: candles[i].time, value: values[i]! });
+    if (values[i] !== null && candles[i] && candles[i] !== undefined) {
+      result.push({ time: candles[i]!.time, value: values[i]! });
     }
   }
 
@@ -74,7 +76,8 @@ export function calculateRSI(candles: Candle[], period = 14) {
   let avgLoss = 0;
 
   for (let i = 1; i < candles.length; i++) {
-    const change = candles[i].close - candles[i - 1].close;
+    if (!candles[i] || !candles[i - 1]) continue;
+    const change = candles[i]!.close - candles[i - 1]!.close;
 
     if (i <= period) {
       if (change > 0) gains += change;
@@ -102,10 +105,10 @@ export function calculateRSI(candles: Candle[], period = 14) {
     }
   }
 
-  // Convert to result format, only including non-null values
+  // Convert to result format, only including non-null values and defined candles
   for (let i = 0; i < candles.length; i++) {
-    if (values[i] !== null) {
-      result.push({ time: candles[i].time, value: values[i]! });
+    if (values[i] !== null && candles[i] && candles[i] !== undefined) {
+      result.push({ time: candles[i]!.time, value: values[i]! });
     }
   }
 
@@ -133,7 +136,9 @@ export function calculateMACD(
 
   // Calculate MACD aligned with original candle times
   for (let i = 0; i < candles.length; i++) {
-    const time = candles[i].time;
+    const candle = candles[i];
+    if (!candle) continue;
+    const time = candle.time;
     const fastValue = emaFastMap.get(time);
     const slowValue = emaSlowMap.get(time);
 
@@ -148,10 +153,10 @@ export function calculateMACD(
   // Convert MACD values to format suitable for EMA calculation
   const macdForSignal = candles
     .map((candle, i) => ({
-      time: candle.time,
+      time: candle?.time ?? 0,
       close: macdValues[i] ?? 0,
     }))
-    .filter((_, i) => macdValues[i] !== null);
+    .filter((_, i) => macdValues[i] !== null && candles[i] !== undefined);
 
   const signal = calculateEMA(macdForSignal, signalPeriod);
   const signalMap = new Map(signal.map((item) => [item.time, item.value]));
@@ -162,11 +167,13 @@ export function calculateMACD(
   const histogram: { time: number; value: number }[] = [];
 
   for (let i = 0; i < candles.length; i++) {
-    const time = candles[i].time;
+    const candle = candles[i];
+    if (!candle) continue;
+    const time = candle.time;
     const macdValue = macdValues[i];
     const signalValue = signalMap.get(time);
 
-    if (macdValue !== null) {
+    if (macdValue !== null && macdValue !== undefined) {
       macd.push({ time, value: macdValue });
 
       if (signalValue !== undefined) {
