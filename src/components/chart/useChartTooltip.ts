@@ -12,12 +12,15 @@ export const useChartTooltip = (
   const [isHovering, setIsHovering] = useState(false);
 
   // Function to get latest data
-  const getLatestData = useCallback(() => {
+  const getLatestData = useCallback((): TooltipData | null => {
     if (candles.length === 0) return null;
 
     const latestCandle = candles[candles.length - 1];
     const latestVolume = volumes[volumes.length - 1];
-    const latestTime = latestCandle.time;
+    const latestTime = latestCandle?.time;
+
+    // Early return if essential data is missing
+    if (!latestCandle || latestTime === undefined) return null;
 
     const findDataAtTime = (
       data: Array<{ time: number; value: number }>,
@@ -55,10 +58,10 @@ export const useChartTooltip = (
     return {
       time: new Date(latestTime * 1000).toISOString(),
       candle: {
-        open: latestCandle.open,
-        high: latestCandle.high,
-        low: latestCandle.low,
-        close: latestCandle.close,
+        open: latestCandle.open ?? 0,
+        high: latestCandle.high ?? 0,
+        low: latestCandle.low ?? 0,
+        close: latestCandle.close ?? 0,
       },
       volume: latestVolume?.value,
       sma: findDataAtTime(indicatorData.sma, latestTime),
@@ -71,7 +74,10 @@ export const useChartTooltip = (
   // Set initial data when component mounts or data changes
   useEffect(() => {
     if (!isHovering) {
-      setTooltipData(getLatestData());
+      const latestData = getLatestData();
+      if (latestData) {
+        setTooltipData(latestData);
+      }
     }
   }, [getLatestData, isHovering]);
 
@@ -80,7 +86,10 @@ export const useChartTooltip = (
       setIsHovering(true);
 
       if (!param.time) {
-        setTooltipData(getLatestData());
+        const latestData = getLatestData();
+        if (latestData) {
+          setTooltipData(latestData);
+        }
         return;
       }
 
@@ -91,10 +100,19 @@ export const useChartTooltip = (
           ? new Date(time * 1000).toISOString()
           : time.toString();
 
-      // Extract candlestick data
-      const candleData = param.seriesData?.get(
-        param.seriesData.keys().next().value
-      );
+      // Extract candlestick data with proper null checks
+      let candleData;
+      if (param.seriesData && param.seriesData.size > 0) {
+        const firstSeries = param.seriesData.keys().next().value;
+        if (firstSeries) {
+          candleData = param.seriesData.get(firstSeries);
+        }
+      }
+
+      // Find volume data at this time point from volumes array
+      const findVolumeAtTime = (targetTime: any) => {
+        return volumes.find((vol) => vol.time === targetTime)?.value;
+      };
 
       // Find indicator data at this time point
       const findDataAtTime = (
@@ -133,16 +151,20 @@ export const useChartTooltip = (
       const tooltipData: TooltipData = {
         time: timeStr,
         candle:
-          candleData && "open" in candleData
+          candleData &&
+          "open" in candleData &&
+          "high" in candleData &&
+          "low" in candleData &&
+          "close" in candleData
             ? {
-                open: candleData.open,
-                high: candleData.high,
-                low: candleData.low,
-                close: candleData.close,
+                open: typeof candleData.open === "number" ? candleData.open : 0,
+                high: typeof candleData.high === "number" ? candleData.high : 0,
+                low: typeof candleData.low === "number" ? candleData.low : 0,
+                close:
+                  typeof candleData.close === "number" ? candleData.close : 0,
               }
             : undefined,
-        volume:
-          candleData && "value" in candleData ? candleData.value : undefined,
+        volume: findVolumeAtTime(time),
         sma: findDataAtTime(indicatorData.sma, time),
         ema: findDataAtTime(indicatorData.ema, time),
         rsi: findDataAtTime(indicatorData.rsi, time),
@@ -151,12 +173,15 @@ export const useChartTooltip = (
 
       setTooltipData(tooltipData);
     },
-    [indicatorData, getLatestData]
+    [indicatorData, getLatestData, volumes]
   );
 
   const handleMouseLeave = useCallback(() => {
     setIsHovering(false);
-    setTooltipData(getLatestData());
+    const latestData = getLatestData();
+    if (latestData) {
+      setTooltipData(latestData);
+    }
   }, [getLatestData]);
 
   return {

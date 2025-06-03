@@ -17,10 +17,19 @@ const ChartTooltip: React.FC<ChartTooltipProps> = ({ data }) => {
     return value.toFixed(decimals);
   };
 
-  const formatTime = (timeStr: string) => {
-    const date = new Date(timeStr);
-    return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+  const formatVolume = (value: number) => {
+    if (value >= 1000000) {
+      return (value / 1000000).toFixed(1) + "M";
+    } else if (value >= 1000) {
+      return (value / 1000).toFixed(1) + "K";
+    }
+    return value.toFixed(0);
   };
+
+  // const formatTime = (timeStr: string) => {
+  //   const date = new Date(timeStr);
+  //   return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+  // };
 
   return (
     <div
@@ -43,16 +52,13 @@ const ChartTooltip: React.FC<ChartTooltipProps> = ({ data }) => {
       }}
     >
       {/* Time */}
-      <div style={{ fontWeight: "bold", minWidth: "160px" }}>
+      {/* <div style={{ fontWeight: "bold", minWidth: "160px" }}>
         {formatTime(data.time)}
-      </div>
+      </div> */}
 
       {/* Price Data */}
       {data.candle && (
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          <span style={{ fontWeight: "bold", color: theme.colors.text + "cc" }}>
-            OHLC:
-          </span>
           <span style={{ color: theme.colors.bullish }}>
             O: {formatNumber(data.candle.open)}
           </span>
@@ -78,10 +84,15 @@ const ChartTooltip: React.FC<ChartTooltipProps> = ({ data }) => {
       {/* Volume */}
       {data.volume !== undefined && (
         <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <span style={{ color: theme.colors.text + "cc", fontWeight: "500" }}>
+          <span
+            style={{
+              color: theme.colors.accent || "#2962FF",
+              fontWeight: "600",
+            }}
+          >
             Vol:
           </span>
-          <span>{formatNumber(data.volume, 0)}</span>
+          <span style={{ fontWeight: "500" }}>{formatVolume(data.volume)}</span>
         </div>
       )}
 
