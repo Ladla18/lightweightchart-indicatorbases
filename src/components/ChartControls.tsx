@@ -5,12 +5,13 @@ import {
   FaMoon,
   FaChevronDown,
   FaCheck,
+  FaDrawPolygon,
+  FaTrash,
 } from "react-icons/fa";
 import { useState } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 
 const timeFrames = [
- 
   { label: "5m", value: "5min" },
   { label: "15m", value: "15min" },
 
@@ -49,11 +50,17 @@ const ChartControls = ({
   onTimeFrameChange,
   indicators,
   onIndicatorsChange,
+  trendlineMode,
+  onTrendlineModeChange,
+  onClearAllTrendlines,
 }: {
   timeFrame: string;
   onTimeFrameChange: (tf: string) => void;
   indicators: string[];
   onIndicatorsChange: (inds: string[]) => void;
+  trendlineMode?: boolean;
+  onTrendlineModeChange?: (mode: boolean) => void;
+  onClearAllTrendlines?: () => void;
 }) => {
   const { theme, toggleTheme } = useTheme();
   const [showIndicators, setShowIndicators] = useState(false);
@@ -112,7 +119,7 @@ const ChartControls = ({
 
           {showIndicators && (
             <div
-              className="absolute top-full left-0 mt-2 min-w-80 rounded-lg shadow-2xl z-50 border overflow-hidden"
+              className="absolute top-full left-0 mt-2 min-w-80 rounded-lg shadow-2xl z-[10000] border overflow-hidden"
               style={{
                 backgroundColor: theme.colors.primary,
                 borderColor: theme.colors.border,
@@ -224,6 +231,70 @@ const ChartControls = ({
           />
           <span className="font-medium">Candlestick</span>
         </button>
+
+        {/* Trendline Controls Group */}
+        <div className="flex items-center gap-2">
+          {/* Trendline Button */}
+          <button
+            className="flex items-center gap-3 px-4 py-2 rounded-lg transition-all duration-200 hover:scale-105"
+            style={{
+              backgroundColor: trendlineMode
+                ? theme.colors.accent
+                : theme.colors.tertiary,
+              color: trendlineMode ? "#ffffff" : theme.colors.text,
+              border: `1px solid ${
+                trendlineMode ? theme.colors.accent : theme.colors.border
+              }`,
+            }}
+            onClick={() => onTrendlineModeChange?.(!trendlineMode)}
+            onMouseEnter={(e) => {
+              if (!trendlineMode) {
+                e.currentTarget.style.backgroundColor = theme.colors.accent;
+                e.currentTarget.style.color = "#ffffff";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!trendlineMode) {
+                e.currentTarget.style.backgroundColor = theme.colors.tertiary;
+                e.currentTarget.style.color = theme.colors.text;
+              }
+            }}
+          >
+            <FaDrawPolygon
+              className="text-lg"
+              style={{ color: trendlineMode ? "#ffffff" : theme.colors.accent }}
+            />
+            <span className="font-medium">
+              {trendlineMode ? "Drawing..." : "Trendline"}
+            </span>
+          </button>
+
+          {/* Clear All Trendlines Button */}
+          <button
+            className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 hover:scale-105"
+            style={{
+              backgroundColor: theme.colors.tertiary,
+              color: theme.colors.text,
+              border: `1px solid ${theme.colors.border}`,
+            }}
+            onClick={() => {
+              // Dispatch a custom event that the trendline manager can listen to
+              window.dispatchEvent(new CustomEvent("clearAllTrendlines"));
+              onClearAllTrendlines?.();
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = "#ef4444";
+              e.currentTarget.style.color = "#ffffff";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = theme.colors.tertiary;
+              e.currentTarget.style.color = theme.colors.text;
+            }}
+            title="Clear All Trendlines"
+          >
+            <FaTrash className="text-sm" style={{ color: theme.colors.text }} />
+          </button>
+        </div>
       </div>
 
       {/* Center Section - Time Frames */}

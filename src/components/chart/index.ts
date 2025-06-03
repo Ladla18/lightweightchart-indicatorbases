@@ -17,3 +17,6 @@ export * from "./useChartTooltip";
 
 // Components
 export { default as ChartTooltip } from "./ChartTooltip";
+
+// Barrel exports for chart functionality
+export * from "./trendlines";
