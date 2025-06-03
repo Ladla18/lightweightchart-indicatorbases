@@ -91,15 +91,17 @@ const ChartControls = ({
     accent: "#2962FF",
     danger: "#F23645",
     success: "#089981",
-   
   };
 
   return (
-    <div className={`flex items-center justify-between w-full border-b border-gray-300 ${theme.mode === "dark" ? "border-gray-700" : ""}`}>
+    <div
+      className={`flex items-center justify-between w-full border-b border-gray-300 ${
+        theme.mode === "dark" ? "border-gray-700" : ""
+      }`}
+    >
       <div
         className="flex items-centers justify-start gap-2 px-4 py-2 h-full border-b"
         style={{
-      
           borderColor: tvColors.border,
           color: tvColors.buttonText,
         }}
