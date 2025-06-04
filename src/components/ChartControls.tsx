@@ -595,6 +595,7 @@ const ChartControls = ({
             </>
           )}
         </button>
+        <button>Layouts</button>
       </div>
     </div>
   );

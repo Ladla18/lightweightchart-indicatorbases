@@ -183,6 +183,20 @@ export class TrendlineManager {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
+    // Only allow trendline interactions in the main chart pane
+    const isInMainPane = this.isInMainChartPane(y);
+    if (!isInMainPane) {
+      // Disable pointer events when outside main chart pane
+      if (this.canvas.style.pointerEvents !== "none") {
+        this.canvas.style.pointerEvents = "none";
+        this.canvas.style.cursor = "default";
+        console.log(
+          "🚫 Outside main chart pane - disabled trendline interactions"
+        ); // Debug log
+      }
+      return;
+    }
+
     const hitTest = this.hitTest(x, y);
 
     // More conservative pointer events management - prioritize chart interactions
@@ -713,6 +727,14 @@ export class TrendlineManager {
 
     console.log("Canvas coordinates:", { x, y }); // Debug log
 
+    // Check if coordinates are within the main chart pane only
+    if (!this.isInMainChartPane(y)) {
+      console.log(
+        "🚫 Point outside main chart pane, rejecting trendline interaction"
+      ); // Debug log
+      return null;
+    }
+
     // Convert pixel coordinates to chart coordinates
     const timeScale = this.chart.timeScale();
 
@@ -720,7 +742,7 @@ export class TrendlineManager {
       let time = timeScale.coordinateToTime(x);
       let price = this.candlestickSeries.coordinateToPrice(y);
 
-      // If time is null (outside visible range), extrapolate
+      // Enhanced time extrapolation - make it truly independent of data range
       if (time === null) {
         const visibleRange = timeScale.getVisibleRange();
         if (visibleRange) {
@@ -730,34 +752,80 @@ export class TrendlineManager {
               ? visibleRange.to - visibleRange.from
               : 0;
           const chartWidth = rect.width;
-          const timePerPixel = timeRange / chartWidth;
 
-          // Calculate time based on position relative to chart area
-          const leftTime =
-            typeof visibleRange.from === "number" ? visibleRange.from : 0;
-          time = (leftTime + x * timePerPixel) as Time;
+          if (timeRange > 0 && chartWidth > 0) {
+            const timePerPixel = timeRange / chartWidth;
+
+            // Calculate time based on position relative to chart area
+            // Allow unlimited extension in both directions
+            const leftTime =
+              typeof visibleRange.from === "number" ? visibleRange.from : 0;
+
+            // This allows trendlines to extend far beyond both ends of the data
+            time = (leftTime + x * timePerPixel) as Time;
+
+            console.log("🕒 Time extrapolation:", {
+              x,
+              timePerPixel,
+              leftTime,
+              calculatedTime: time,
+              visibleRange,
+            }); // Debug log
+          } else {
+            // Fallback: create a reasonable time scale based on current time
+            const now = Math.floor(Date.now() / 1000);
+            const dayInSeconds = 24 * 60 * 60;
+            const timePerPixel = dayInSeconds / chartWidth; // 1 day per chart width
+            const centerTime = now;
+            const leftTime = centerTime - (chartWidth / 2) * timePerPixel;
+            time = (leftTime + x * timePerPixel) as Time;
+          }
         } else {
-          // Fallback: use current timestamp if no visible range
-          time = Math.floor(Date.now() / 1000) as Time;
+          // Ultimate fallback: use a simple linear time scale
+          const now = Math.floor(Date.now() / 1000);
+          const dayInSeconds = 24 * 60 * 60;
+          const timePerPixel = dayInSeconds / rect.width;
+          time = (now - dayInSeconds + x * timePerPixel) as Time;
         }
       }
 
-      // If price is null (outside visible range), extrapolate
+      // Enhanced price extrapolation - make it truly independent
       if (price === null) {
         const priceScale = this.candlestickSeries.priceScale();
         const visiblePriceRange = priceScale.getVisibleRange();
         if (visiblePriceRange) {
           const priceRange = visiblePriceRange.to - visiblePriceRange.from;
           const chartHeight = rect.height;
-          const pricePerPixel = priceRange / chartHeight;
 
-          // Calculate price based on position (y=0 is top, so we need to invert)
-          const topPrice = visiblePriceRange.to;
-          const calculatedPrice = topPrice - y * pricePerPixel;
-          price = calculatedPrice as any; // Cast to match the expected return type
+          if (priceRange > 0 && chartHeight > 0) {
+            const pricePerPixel = priceRange / chartHeight;
+
+            // Calculate price based on position (y=0 is top, so we need to invert)
+            // Allow unlimited extension above and below
+            const topPrice = visiblePriceRange.to;
+            const calculatedPrice = topPrice - y * pricePerPixel;
+            price = calculatedPrice as any;
+
+            console.log("💰 Price extrapolation:", {
+              y,
+              pricePerPixel,
+              topPrice,
+              calculatedPrice: price,
+              visiblePriceRange,
+            }); // Debug log
+          } else {
+            // Fallback: use a reasonable price scale
+            const centerPrice = 100; // Default center price
+            const priceRange = 200; // Default range (50-150)
+            const pricePerPixel = priceRange / rect.height;
+            price = (centerPrice + priceRange / 2 - y * pricePerPixel) as any;
+          }
         } else {
-          // Fallback: use a reasonable default price
-          price = 100 as any; // Cast to match the expected return type
+          // Ultimate fallback: simple linear price scale
+          const centerPrice = 100;
+          const priceRange = 200;
+          const pricePerPixel = priceRange / rect.height;
+          price = (centerPrice + priceRange / 2 - y * pricePerPixel) as any;
         }
       }
 
@@ -774,6 +842,78 @@ export class TrendlineManager {
     } catch (error) {
       console.warn("Error converting coordinates:", error);
       return null;
+    }
+  }
+
+  // Check if the Y coordinate is within the main chart pane (not in indicator subchart panes)
+  private isInMainChartPane(y: number): boolean {
+    if (!this.canvas) return false;
+
+    try {
+      // Get the main chart pane height more accurately
+      const chartContainer = this.chart.chartElement();
+      if (!chartContainer) return false;
+
+      // Get all panes from the chart
+     
+      // Try to get the main pane boundaries more precisely
+      // The main pane (pane 0) contains the candlestick series
+      const priceScale = this.candlestickSeries.priceScale();
+      const visiblePriceRange = priceScale.getVisibleRange();
+
+      if (!visiblePriceRange) return false;
+
+      // Convert price range to pixel coordinates to determine main pane boundaries
+      const topPrice = visiblePriceRange.to;
+      const bottomPrice = visiblePriceRange.from;
+
+      const topY = this.candlestickSeries.priceToCoordinate(topPrice);
+      const bottomY = this.candlestickSeries.priceToCoordinate(bottomPrice);
+
+      // If price-to-coordinate conversion works, check if Y is within main pane bounds
+      if (topY !== null && bottomY !== null) {
+        const mainPaneTop = Math.min(topY, bottomY);
+        const mainPaneBottom = Math.max(topY, bottomY);
+
+        // Allow trendlines to go above the visible price range (unlimited upward)
+        // Only restrict them from going below into indicator panes
+        const buffer = 10;
+        const isAboveIndicatorPanes = y <= mainPaneBottom + buffer;
+
+        console.log("📊 Precise main pane check:", {
+          y,
+          mainPaneTop,
+          mainPaneBottom,
+          isAboveIndicatorPanes,
+          topPrice,
+          bottomPrice,
+        }); // Debug log
+
+        return isAboveIndicatorPanes;
+      }
+
+      // Fallback: try price conversion to see if we're in a valid area
+      const price = this.candlestickSeries.coordinateToPrice(y);
+      const canvasHeight = this.canvas.height / (window.devicePixelRatio || 1);
+
+      // Allow anywhere in the upper portion of the canvas (top 75%)
+      // This allows trendlines to extend above visible price range
+      const upperAreaRatio = 0.75;
+      const isInUpperArea = y <= canvasHeight * upperAreaRatio;
+
+      console.log("📊 Fallback main pane check:", {
+        y,
+        price,
+        canvasHeight,
+        upperAreaLimit: canvasHeight * upperAreaRatio,
+        isInUpperArea,
+        priceNotNull: price !== null,
+      }); // Debug log
+
+      return isInUpperArea;
+    } catch (error) {
+      console.warn("Error checking main chart pane:", error);
+      return false;
     }
   }
 
@@ -808,6 +948,12 @@ export class TrendlineManager {
 
     if (!startCoords || !endCoords) return;
 
+    // Clip the line to main chart pane boundaries
+    const clippedCoords = this.clipLineToMainPane(startCoords, endCoords);
+    if (!clippedCoords) return;
+
+    const { start: clippedStart, end: clippedEnd } = clippedCoords;
+
     this.ctx.save();
 
     // Enhanced styling for selected/dragging trendlines
@@ -837,11 +983,12 @@ export class TrendlineManager {
     }
 
     this.ctx.beginPath();
-    this.ctx.moveTo(startCoords.x, startCoords.y);
-    this.ctx.lineTo(endCoords.x, endCoords.y);
+    this.ctx.moveTo(clippedStart.x, clippedStart.y);
+    this.ctx.lineTo(clippedEnd.x, clippedEnd.y);
     this.ctx.stroke();
 
     // Draw end points with enhanced styling for selected/dragging
+    // Only draw points if they are within the main chart pane
     if (!isPreview) {
       const pointColor = trendline.color || this.theme.colors.accent;
       let pointRadius = 4;
@@ -852,17 +999,89 @@ export class TrendlineManager {
         pointRadius = 6; // Larger when selected
       }
 
-      this.drawPoint(startCoords.x, startCoords.y, pointColor, pointRadius);
-      this.drawPoint(endCoords.x, endCoords.y, pointColor, pointRadius);
+      // Only draw start point if it's in the main pane
+      if (this.isInMainChartPane(startCoords.y)) {
+        this.drawPoint(startCoords.x, startCoords.y, pointColor, pointRadius);
 
-      // Add grab handles for better visual feedback
-      if (isSelected && !isDragging) {
-        this.drawGrabHandle(startCoords.x, startCoords.y);
-        this.drawGrabHandle(endCoords.x, endCoords.y);
+        // Add grab handles for better visual feedback
+        if (isSelected && !isDragging) {
+          this.drawGrabHandle(startCoords.x, startCoords.y);
+        }
+      }
+
+      // Only draw end point if it's in the main pane
+      if (this.isInMainChartPane(endCoords.y)) {
+        this.drawPoint(endCoords.x, endCoords.y, pointColor, pointRadius);
+
+        // Add grab handles for better visual feedback
+        if (isSelected && !isDragging) {
+          this.drawGrabHandle(endCoords.x, endCoords.y);
+        }
       }
     }
 
     this.ctx.restore();
+  }
+
+  // Clip a line to stay within the main chart pane boundaries
+  private clipLineToMainPane(
+    start: { x: number; y: number },
+    end: { x: number; y: number }
+  ): { start: { x: number; y: number }; end: { x: number; y: number } } | null {
+    if (!this.canvas) return null;
+
+    try {
+      // Get main pane boundaries
+      const priceScale = this.candlestickSeries.priceScale();
+      const visiblePriceRange = priceScale.getVisibleRange();
+
+      if (!visiblePriceRange) return { start, end };
+
+      const topPrice = visiblePriceRange.to;
+      const bottomPrice = visiblePriceRange.from;
+
+      const topY = this.candlestickSeries.priceToCoordinate(topPrice);
+      const bottomY = this.candlestickSeries.priceToCoordinate(bottomPrice);
+
+      if (topY === null || bottomY === null) return { start, end };
+
+ 
+      const mainPaneBottom = Math.max(topY, bottomY);
+
+      // Add buffer for chart margins
+      const buffer = 5;
+      // Don't clip the top - allow trendlines to extend upward beyond visible range
+      // Only clip at the bottom to prevent crossing into indicator panes
+      const clampedBottom = mainPaneBottom + buffer;
+
+      // Clip line to main pane boundaries using line intersection
+      const clippedStart = { ...start };
+      const clippedEnd = { ...end };
+
+      // Only clip if points are below the main pane (going into indicator panes)
+      // Don't clip points above the main pane (allow unlimited upward extension)
+
+      // If start point is below main pane, clip it to bottom boundary
+      if (start.y > clampedBottom) {
+        // Line crosses bottom boundary
+        const t = (clampedBottom - start.y) / (end.y - start.y);
+        clippedStart.x = start.x + t * (end.x - start.x);
+        clippedStart.y = clampedBottom;
+      }
+
+      // If end point is below main pane, clip it to bottom boundary
+      if (end.y > clampedBottom) {
+        // Line crosses bottom boundary
+        const t = (clampedBottom - start.y) / (end.y - start.y);
+        clippedEnd.x = start.x + t * (end.x - start.x);
+        clippedEnd.y = clampedBottom;
+      }
+
+      return { start: clippedStart, end: clippedEnd };
+    } catch (error) {
+      console.warn("Error clipping line to main pane:", error);
+      return { start, end };
+    }
   }
 
   private drawPoint(x: number, y: number, color: string, radius = 4) {
@@ -913,7 +1132,7 @@ export class TrendlineManager {
       let x = timeScale.timeToCoordinate(point.time);
       let y = this.candlestickSeries.priceToCoordinate(point.price);
 
-      // If x is null (time outside visible range), extrapolate
+      // Enhanced X coordinate calculation - independent of data range
       if (x === null) {
         const visibleRange = timeScale.getVisibleRange();
         if (visibleRange && this.canvas) {
@@ -923,22 +1142,48 @@ export class TrendlineManager {
               ? visibleRange.to - visibleRange.from
               : 0;
           const chartWidth = this.canvas.width / (window.devicePixelRatio || 1);
-          const timePerPixel = timeRange / chartWidth;
 
-          const pointTimeNum =
-            typeof point.time === "string"
-              ? parseInt(point.time)
-              : Number(point.time);
-          const leftTime =
-            typeof visibleRange.from === "number" ? visibleRange.from : 0;
+          if (timeRange > 0 && chartWidth > 0) {
+            const timePerPixel = timeRange / chartWidth;
 
-          x = ((pointTimeNum - leftTime) / timePerPixel) as any;
+            const pointTimeNum =
+              typeof point.time === "string"
+                ? parseInt(point.time)
+                : Number(point.time);
+            const leftTime =
+              typeof visibleRange.from === "number" ? visibleRange.from : 0;
+
+            // Allow unlimited extension - calculate X even if far outside range
+            x = ((pointTimeNum - leftTime) / timePerPixel) as any;
+
+            console.log("🕒 X coordinate extrapolation:", {
+              pointTime: pointTimeNum,
+              leftTime,
+              timePerPixel,
+              calculatedX: x,
+              chartWidth,
+            }); // Debug log
+          } else {
+            // Fallback: use a reasonable time scale
+            const now = Math.floor(Date.now() / 1000);
+            const dayInSeconds = 24 * 60 * 60;
+            const timePerPixel = dayInSeconds / chartWidth;
+            const centerTime = now;
+            const leftTime = centerTime - (chartWidth / 2) * timePerPixel;
+
+            const pointTimeNum =
+              typeof point.time === "string"
+                ? parseInt(point.time)
+                : Number(point.time);
+            x = ((pointTimeNum - leftTime) / timePerPixel) as any;
+          }
         } else {
-          x = 0 as any; // Fallback
+          // Ultimate fallback
+          x = 0 as any;
         }
       }
 
-      // If y is null (price outside visible range), extrapolate
+      // Enhanced Y coordinate calculation - independent of price range
       if (y === null) {
         const priceScale = this.candlestickSeries.priceScale();
         const visiblePriceRange = priceScale.getVisibleRange();
@@ -946,13 +1191,33 @@ export class TrendlineManager {
           const priceRange = visiblePriceRange.to - visiblePriceRange.from;
           const chartHeight =
             this.canvas.height / (window.devicePixelRatio || 1);
-          const pricePerPixel = priceRange / chartHeight;
 
-          // Calculate y position (inverted because y=0 is top)
-          const topPrice = visiblePriceRange.to;
-          y = ((topPrice - point.price) / pricePerPixel) as any;
+          if (priceRange > 0 && chartHeight > 0) {
+            const pricePerPixel = priceRange / chartHeight;
+
+            // Calculate y position (inverted because y=0 is top)
+            // Allow unlimited extension above and below
+            const topPrice = visiblePriceRange.to;
+            y = ((topPrice - point.price) / pricePerPixel) as any;
+
+            console.log("💰 Y coordinate extrapolation:", {
+              pointPrice: point.price,
+              topPrice,
+              pricePerPixel,
+              calculatedY: y,
+              chartHeight,
+            }); // Debug log
+          } else {
+            // Fallback: use a reasonable price scale
+            const centerPrice = 100;
+            const priceRange = 200;
+            const pricePerPixel = priceRange / chartHeight;
+            y = ((centerPrice + priceRange / 2 - point.price) /
+              pricePerPixel) as any;
+          }
         } else {
-          y = 0 as any; // Fallback
+          // Ultimate fallback
+          y = 0 as any;
         }
       }
 
