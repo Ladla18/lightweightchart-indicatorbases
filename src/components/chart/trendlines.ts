@@ -46,6 +46,7 @@ export class TrendlineManager {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private eventContainer: HTMLElement | null = null;
+  private pointerEventsTimeout: NodeJS.Timeout | null = null;
 
   constructor(
     chart: IChartApi,
@@ -159,6 +160,12 @@ export class TrendlineManager {
       this.handleClearAllEvent.bind(this)
     );
 
+    // Chart events - listen for scale and position changes
+    this.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+      console.log("📊 Chart view changed - redrawing trendlines"); // Debug log
+      this.redraw();
+    });
+
     // Resize observer
     const chartContainer = this.chart.chartElement();
     if (chartContainer) {
@@ -178,35 +185,108 @@ export class TrendlineManager {
 
     const hitTest = this.hitTest(x, y);
 
-    // Enable pointer events only when needed
-    if (this.state.isDrawing || hitTest || this.state.dragMode !== "none") {
-      this.canvas.style.pointerEvents = "auto";
+    // More conservative pointer events management - prioritize chart interactions
+    const shouldEnablePointerEvents =
+      this.state.isDrawing ||
+      this.state.dragMode !== "none" ||
+      (hitTest && this.isNearTrendline(hitTest, x, y)); // Only enable for clear trendline interactions
 
-      // Update cursor
-      if (this.state.dragMode !== "none") {
-        switch (this.state.dragMode) {
-          case "start":
-          case "end":
-          case "line":
-            this.canvas.style.cursor = "grabbing";
-            break;
-        }
-      } else if (this.state.isDrawing) {
-        this.canvas.style.cursor = "crosshair";
-      } else if (hitTest) {
-        switch (hitTest.dragMode) {
-          case "start":
-          case "end":
-          case "line":
-            this.canvas.style.cursor = "grab";
-            break;
-        }
-      }
-    } else {
-      // Disable pointer events to allow normal chart interactions
-      this.canvas.style.pointerEvents = "none";
-      this.canvas.style.cursor = "default";
+    // Clear any existing timeout
+    if (this.pointerEventsTimeout) {
+      clearTimeout(this.pointerEventsTimeout);
+      this.pointerEventsTimeout = null;
     }
+
+    // Only change pointer events if the state actually changed
+    const currentPointerEvents = this.canvas.style.pointerEvents;
+    const newPointerEvents = shouldEnablePointerEvents ? "auto" : "none";
+
+    if (currentPointerEvents !== newPointerEvents) {
+      this.canvas.style.pointerEvents = newPointerEvents;
+      console.log(
+        "🖱️ Pointer events changed to:",
+        newPointerEvents,
+        "- Reason:",
+        this.state.isDrawing
+          ? "drawing"
+          : this.state.dragMode !== "none"
+          ? "dragging"
+          : hitTest
+          ? "near trendline"
+          : "chart interactions enabled"
+      );
+    }
+
+    // Update cursor based on state
+    let newCursor = "default";
+    if (this.state.dragMode !== "none") {
+      newCursor = "grabbing";
+    } else if (this.state.isDrawing) {
+      newCursor = "crosshair";
+    } else if (hitTest && this.isNearTrendline(hitTest, x, y)) {
+      newCursor = "grab";
+    }
+
+    if (this.canvas.style.cursor !== newCursor) {
+      this.canvas.style.cursor = newCursor;
+    }
+  }
+
+  // Helper method to determine if user is clearly trying to interact with a trendline
+  private isNearTrendline(hitTest: any, x: number, y: number): boolean {
+    if (!hitTest) return false;
+
+    // For endpoints, use a smaller hit area to be more precise
+    if (hitTest.dragMode === "start" || hitTest.dragMode === "end") {
+      const PRECISE_POINT_RADIUS = 12;
+      const trendline = this.state.trendlines.find(
+        (t) => t.id === hitTest.trendlineId
+      );
+      if (!trendline) return false;
+
+      const startCoords = this.getPixelCoordinates(trendline.startPoint);
+      const endCoords = this.getPixelCoordinates(trendline.endPoint);
+
+      if (startCoords && hitTest.dragMode === "start") {
+        const dist = Math.sqrt(
+          Math.pow(x - startCoords.x, 2) + Math.pow(y - startCoords.y, 2)
+        );
+        return dist <= PRECISE_POINT_RADIUS;
+      }
+
+      if (endCoords && hitTest.dragMode === "end") {
+        const dist = Math.sqrt(
+          Math.pow(x - endCoords.x, 2) + Math.pow(y - endCoords.y, 2)
+        );
+        return dist <= PRECISE_POINT_RADIUS;
+      }
+    }
+
+    // For lines, use a smaller threshold to avoid blocking chart interactions
+    if (hitTest.dragMode === "line") {
+      const PRECISE_LINE_THRESHOLD = 6; // Smaller threshold
+      const trendline = this.state.trendlines.find(
+        (t) => t.id === hitTest.trendlineId
+      );
+      if (!trendline) return false;
+
+      const startCoords = this.getPixelCoordinates(trendline.startPoint);
+      const endCoords = this.getPixelCoordinates(trendline.endPoint);
+
+      if (startCoords && endCoords) {
+        const lineDistance = this.distanceToLine(
+          x,
+          y,
+          startCoords.x,
+          startCoords.y,
+          endCoords.x,
+          endCoords.y
+        );
+        return lineDistance <= PRECISE_LINE_THRESHOLD;
+      }
+    }
+
+    return false;
   }
 
   private handleMouseDown(event: MouseEvent) {
@@ -293,13 +373,20 @@ export class TrendlineManager {
       this.state.previewEndPoint = null;
       this.state.isDrawing = false; // Auto-exit drawing mode
       console.log("🔄 Auto-exited drawing mode after completing trendline"); // Debug log
+
+      // Immediately trigger auto-exit callback
+      this.updateState();
+
+      // Force immediate auto-exit callback for reliability
+      setTimeout(() => {
+        this.onStateChange({ ...this.state });
+      }, 10);
     } else {
       console.log("⚠️ Unexpected state - resetting current trendline"); // Debug log
       this.state.currentTrendline = null;
       this.state.previewEndPoint = null;
     }
 
-    this.updateState();
     this.redraw();
   }
 
@@ -394,6 +481,13 @@ export class TrendlineManager {
 
     const trendline = { ...originalTrendline };
 
+    console.log(
+      "🔄 Dragging trendline - mode:",
+      this.state.dragMode,
+      "to price:",
+      point.price.toFixed(2)
+    ); // Debug log
+
     switch (this.state.dragMode) {
       case "start":
         console.log(
@@ -413,17 +507,29 @@ export class TrendlineManager {
 
       case "line":
         console.log("🔄 Moving entire trendline to:", point.price.toFixed(2)); // Debug log
-        // Calculate the offset from original start position to maintain relative positioning
+
+        // For line dragging, we need to move the line relative to where the user clicked
+        // Use the stored dragOffset to maintain the relative position from click point
+        if (!this.state.dragOffset || !this.state.dragStartPos) return;
+
         const originalStart = originalTrendline.startPoint;
         const originalEnd = originalTrendline.endPoint;
 
         if (!originalStart || !originalEnd) return; // Add null checks
 
-        // Handle Time type properly - convert to numbers for arithmetic
-        const pointTimeNum =
-          typeof point.time === "string"
-            ? parseInt(point.time)
-            : Number(point.time);
+        // Get current mouse position in pixels
+        const currentMousePixels = this.getPixelCoordinates(point);
+        if (!currentMousePixels) return;
+
+        // Calculate the actual target position by accounting for the drag offset
+        const targetX = currentMousePixels.x - this.state.dragOffset.x;
+        const targetY = currentMousePixels.y - this.state.dragOffset.y;
+
+        // Convert target pixel position back to chart coordinates
+        const targetPoint = this.getPointFromPixelCoordinates(targetX, targetY);
+        if (!targetPoint) return;
+
+        // Calculate the offset from original start position
         const startTimeNum =
           typeof originalStart.time === "string"
             ? parseInt(originalStart.time)
@@ -432,22 +538,23 @@ export class TrendlineManager {
           typeof originalEnd.time === "string"
             ? parseInt(originalEnd.time)
             : Number(originalEnd.time);
+        const targetTimeNum =
+          typeof targetPoint.time === "string"
+            ? parseInt(targetPoint.time)
+            : Number(targetPoint.time);
 
-        // Apply offset to maintain relative position
-        const deltaTime = pointTimeNum - startTimeNum;
-        const deltaPrice = point.price - originalStart.price;
+        // Calculate deltas
+        const deltaTime = targetTimeNum - startTimeNum;
+        const deltaPrice = targetPoint.price - originalStart.price;
 
-        // Convert back to Time type
-        const newStartTime = startTimeNum + deltaTime;
-        const newEndTime = endTimeNum + deltaTime;
-
+        // Apply the offset to both points
         trendline.startPoint = {
-          time: newStartTime as Time,
+          time: (startTimeNum + deltaTime) as Time,
           price: originalStart.price + deltaPrice,
         };
 
         trendline.endPoint = {
-          time: newEndTime as Time,
+          time: (endTimeNum + deltaTime) as Time,
           price: originalEnd.price + deltaPrice,
         };
         break;
@@ -462,8 +569,9 @@ export class TrendlineManager {
       this.updatePriceLinesForTrendline(updatedTrendline);
     }
 
-    this.updateState();
+    // Force immediate redraw to prevent disappearing
     this.redraw();
+    this.updateState();
   }
 
   private handleMouseUp(_event: MouseEvent) {
@@ -609,8 +717,49 @@ export class TrendlineManager {
     const timeScale = this.chart.timeScale();
 
     try {
-      const time = timeScale.coordinateToTime(x);
-      const price = this.candlestickSeries.coordinateToPrice(y);
+      let time = timeScale.coordinateToTime(x);
+      let price = this.candlestickSeries.coordinateToPrice(y);
+
+      // If time is null (outside visible range), extrapolate
+      if (time === null) {
+        const visibleRange = timeScale.getVisibleRange();
+        if (visibleRange) {
+          const timeRange =
+            typeof visibleRange.to === "number" &&
+            typeof visibleRange.from === "number"
+              ? visibleRange.to - visibleRange.from
+              : 0;
+          const chartWidth = rect.width;
+          const timePerPixel = timeRange / chartWidth;
+
+          // Calculate time based on position relative to chart area
+          const leftTime =
+            typeof visibleRange.from === "number" ? visibleRange.from : 0;
+          time = (leftTime + x * timePerPixel) as Time;
+        } else {
+          // Fallback: use current timestamp if no visible range
+          time = Math.floor(Date.now() / 1000) as Time;
+        }
+      }
+
+      // If price is null (outside visible range), extrapolate
+      if (price === null) {
+        const priceScale = this.candlestickSeries.priceScale();
+        const visiblePriceRange = priceScale.getVisibleRange();
+        if (visiblePriceRange) {
+          const priceRange = visiblePriceRange.to - visiblePriceRange.from;
+          const chartHeight = rect.height;
+          const pricePerPixel = priceRange / chartHeight;
+
+          // Calculate price based on position (y=0 is top, so we need to invert)
+          const topPrice = visiblePriceRange.to;
+          const calculatedPrice = topPrice - y * pricePerPixel;
+          price = calculatedPrice as any; // Cast to match the expected return type
+        } else {
+          // Fallback: use a reasonable default price
+          price = 100 as any; // Cast to match the expected return type
+        }
+      }
 
       console.log("Chart coordinates:", { time, price }); // Debug log
 
@@ -761,8 +910,51 @@ export class TrendlineManager {
     try {
       const timeScale = this.chart.timeScale();
 
-      const x = timeScale.timeToCoordinate(point.time);
-      const y = this.candlestickSeries.priceToCoordinate(point.price);
+      let x = timeScale.timeToCoordinate(point.time);
+      let y = this.candlestickSeries.priceToCoordinate(point.price);
+
+      // If x is null (time outside visible range), extrapolate
+      if (x === null) {
+        const visibleRange = timeScale.getVisibleRange();
+        if (visibleRange && this.canvas) {
+          const timeRange =
+            typeof visibleRange.to === "number" &&
+            typeof visibleRange.from === "number"
+              ? visibleRange.to - visibleRange.from
+              : 0;
+          const chartWidth = this.canvas.width / (window.devicePixelRatio || 1);
+          const timePerPixel = timeRange / chartWidth;
+
+          const pointTimeNum =
+            typeof point.time === "string"
+              ? parseInt(point.time)
+              : Number(point.time);
+          const leftTime =
+            typeof visibleRange.from === "number" ? visibleRange.from : 0;
+
+          x = ((pointTimeNum - leftTime) / timePerPixel) as any;
+        } else {
+          x = 0 as any; // Fallback
+        }
+      }
+
+      // If y is null (price outside visible range), extrapolate
+      if (y === null) {
+        const priceScale = this.candlestickSeries.priceScale();
+        const visiblePriceRange = priceScale.getVisibleRange();
+        if (visiblePriceRange && this.canvas) {
+          const priceRange = visiblePriceRange.to - visiblePriceRange.from;
+          const chartHeight =
+            this.canvas.height / (window.devicePixelRatio || 1);
+          const pricePerPixel = priceRange / chartHeight;
+
+          // Calculate y position (inverted because y=0 is top)
+          const topPrice = visiblePriceRange.to;
+          y = ((topPrice - point.price) / pricePerPixel) as any;
+        } else {
+          y = 0 as any; // Fallback
+        }
+      }
 
       if (x === null || y === null) return null;
 
@@ -864,6 +1056,12 @@ export class TrendlineManager {
       this.removePriceLinesForTrendline(trendline);
     });
 
+    // Clear any pending timeouts
+    if (this.pointerEventsTimeout) {
+      clearTimeout(this.pointerEventsTimeout);
+      this.pointerEventsTimeout = null;
+    }
+
     // Remove chart container event listener
     const chartContainer = this.chart.chartElement();
     if (chartContainer) {
@@ -896,8 +1094,8 @@ export class TrendlineManager {
     x: number,
     y: number
   ): { trendlineId: string; dragMode: "start" | "end" | "line" } | null {
-    const POINT_RADIUS = 12; // Larger hit area for easier grabbing
-    const LINE_THRESHOLD = 8; // Wider line threshold for easier selection
+    const POINT_RADIUS = 14; // Slightly smaller for better chart interaction
+    const LINE_THRESHOLD = 8; // More conservative for line detection
 
     // Test in reverse order (most recently drawn first)
     for (let i = this.state.trendlines.length - 1; i >= 0; i--) {
@@ -908,13 +1106,16 @@ export class TrendlineManager {
       const startCoords = this.getPixelCoordinates(trendline.startPoint);
       const endCoords = this.getPixelCoordinates(trendline.endPoint);
 
-      if (!startCoords || !endCoords) continue;
+      if (!startCoords || !endCoords) {
+        continue;
+      }
 
       // Test endpoints first (higher priority) - these allow extending
       const startDist = Math.sqrt(
         Math.pow(x - startCoords.x, 2) + Math.pow(y - startCoords.y, 2)
       );
       if (startDist <= POINT_RADIUS) {
+        console.log("✅ Hit start point of trendline:", trendline.id);
         return { trendlineId: trendline.id, dragMode: "start" };
       }
 
@@ -922,6 +1123,7 @@ export class TrendlineManager {
         Math.pow(x - endCoords.x, 2) + Math.pow(y - endCoords.y, 2)
       );
       if (endDist <= POINT_RADIUS) {
+        console.log("✅ Hit end point of trendline:", trendline.id);
         return { trendlineId: trendline.id, dragMode: "end" };
       }
 
@@ -935,6 +1137,7 @@ export class TrendlineManager {
         endCoords.y
       );
       if (lineDistance <= LINE_THRESHOLD) {
+        console.log("✅ Hit line of trendline:", trendline.id);
         return { trendlineId: trendline.id, dragMode: "line" };
       }
     }
@@ -1046,5 +1249,67 @@ export class TrendlineManager {
   private handleClearAllEvent() {
     console.log("🗑️ Received clear all trendlines event"); // Debug log
     this.clearAll();
+  }
+
+  private getPointFromPixelCoordinates(
+    x: number,
+    y: number
+  ): TrendlinePoint | null {
+    try {
+      const timeScale = this.chart.timeScale();
+
+      let time = timeScale.coordinateToTime(x);
+      let price = this.candlestickSeries.coordinateToPrice(y);
+
+      // Handle extrapolation for coordinates outside visible range
+      if (time === null) {
+        const visibleRange = timeScale.getVisibleRange();
+        if (visibleRange && this.canvas) {
+          const timeRange =
+            typeof visibleRange.to === "number" &&
+            typeof visibleRange.from === "number"
+              ? visibleRange.to - visibleRange.from
+              : 0;
+          const chartWidth = this.canvas.width / (window.devicePixelRatio || 1);
+          const timePerPixel = timeRange / chartWidth;
+
+          const leftTime =
+            typeof visibleRange.from === "number" ? visibleRange.from : 0;
+          time = (leftTime + x * timePerPixel) as Time;
+        } else {
+          time = Math.floor(Date.now() / 1000) as Time;
+        }
+      }
+
+      if (price === null) {
+        const priceScale = this.candlestickSeries.priceScale();
+        const visiblePriceRange = priceScale.getVisibleRange();
+        if (visiblePriceRange && this.canvas) {
+          const priceRange = visiblePriceRange.to - visiblePriceRange.from;
+          const chartHeight =
+            this.canvas.height / (window.devicePixelRatio || 1);
+          const pricePerPixel = priceRange / chartHeight;
+
+          const topPrice = visiblePriceRange.to;
+          const calculatedPrice = topPrice - y * pricePerPixel;
+          price = calculatedPrice as any;
+        } else {
+          price = 100 as any;
+        }
+      }
+
+      if (time === null || price === null) return null;
+
+      return {
+        time,
+        price,
+      };
+    } catch (error) {
+      console.warn(
+        "Error converting pixel coordinates to chart coordinates:",
+        error
+      );
+      return null;
+    }
   }
 }

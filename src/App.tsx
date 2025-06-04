@@ -6,6 +6,7 @@ import StrategyAssistant from "./components/StrategyAssistant";
 import ResizableDivider from "./components/ResizableDivider";
 import { getStockData, parseAlphaVantageIntraday } from "./services/stockdata";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import type { IndicatorInstance } from "./components/chart/types";
 
 type Candle = {
   time: number;
@@ -25,7 +26,7 @@ const AppContent = () => {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [volumes, setVolumes] = useState<Volume[]>([]);
   const [timeFrame, setTimeFrame] = useState<string>("15min");
-  const [indicators, setIndicators] = useState<string[]>([]);
+  const [indicators, setIndicators] = useState<IndicatorInstance[]>([]);
   const [leftPanelWidth, setLeftPanelWidth] = useState<number>(80); // 80% default
   const [trendlineMode, setTrendlineMode] = useState<boolean>(false);
 

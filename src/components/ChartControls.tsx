@@ -6,6 +6,8 @@ import {
   FaCheck,
   FaDrawPolygon,
   FaTrash,
+  FaPlus,
+  FaTimes,
 } from "react-icons/fa";
 import { useState } from "react";
 import { useTheme } from "../contexts/ThemeContext";
@@ -16,30 +18,58 @@ const timeFrames = [
   { label: "1d", value: "daily" },
 ];
 
-const indicatorOptions = [
+interface IndicatorInstance {
+  id: string;
+  type: string;
+  label: string;
+  params: Record<string, number>;
+}
+
+interface IndicatorOption {
+  label: string;
+  shortLabel: string;
+  value: string;
+  description: string;
+  defaultParams: Record<string, number>;
+  paramLabels: Record<string, string>;
+}
+
+const indicatorOptions: IndicatorOption[] = [
   {
     label: "Simple Moving Average",
     shortLabel: "SMA",
     value: "sma",
-    description: "14-period moving average",
+    description: "Period-based moving average",
+    defaultParams: { period: 14 },
+    paramLabels: { period: "Period" },
   },
   {
     label: "Exponential Moving Average",
     shortLabel: "EMA",
     value: "ema",
-    description: "14-period exponential average",
+    description: "Period-based exponential average",
+    defaultParams: { period: 14 },
+    paramLabels: { period: "Period" },
   },
   {
     label: "Relative Strength Index",
     shortLabel: "RSI",
     value: "rsi",
-    description: "14-period momentum oscillator",
+    description: "Momentum oscillator",
+    defaultParams: { period: 14 },
+    paramLabels: { period: "Period" },
   },
   {
     label: "MACD",
     shortLabel: "MACD",
     value: "macd",
     description: "Moving Average Convergence Divergence",
+    defaultParams: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+    paramLabels: {
+      fastPeriod: "Fast",
+      slowPeriod: "Slow",
+      signalPeriod: "Signal",
+    },
   },
 ];
 
@@ -54,8 +84,8 @@ const ChartControls = ({
 }: {
   timeFrame: string;
   onTimeFrameChange: (tf: string) => void;
-  indicators: string[];
-  onIndicatorsChange: (inds: string[]) => void;
+  indicators: IndicatorInstance[];
+  onIndicatorsChange: (inds: IndicatorInstance[]) => void;
   trendlineMode?: boolean;
   onTrendlineModeChange?: (mode: boolean) => void;
   onClearAllTrendlines?: () => void;
@@ -63,13 +93,52 @@ const ChartControls = ({
   const { theme, toggleTheme } = useTheme();
   const [showIndicators, setShowIndicators] = useState(false);
   const [showTimeFrames, setShowTimeFrames] = useState(false);
+  const [addingIndicator, setAddingIndicator] = useState<string | null>(null);
+  const [indicatorParams, setIndicatorParams] = useState<
+    Record<string, number>
+  >({});
 
-  const handleIndicatorChange = (value: string) => {
-    if (indicators.includes(value)) {
-      onIndicatorsChange(indicators.filter((i) => i !== value));
-    } else {
-      onIndicatorsChange([...indicators, value]);
-    }
+  const handleAddIndicator = (type: string) => {
+    const option = indicatorOptions.find((opt) => opt.value === type);
+    if (!option) return;
+
+    setAddingIndicator(type);
+    setIndicatorParams(option.defaultParams);
+  };
+
+  const handleConfirmAddIndicator = () => {
+    if (!addingIndicator) return;
+
+    const option = indicatorOptions.find(
+      (opt) => opt.value === addingIndicator
+    );
+    if (!option) return;
+
+    const newIndicator: IndicatorInstance = {
+      id: `${addingIndicator}_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 5)}`,
+      type: addingIndicator,
+      label: `${option.shortLabel}(${Object.values(indicatorParams).join(
+        ","
+      )})`,
+      params: { ...indicatorParams },
+    };
+
+    onIndicatorsChange([...indicators, newIndicator]);
+    setAddingIndicator(null);
+    setIndicatorParams({});
+  };
+
+  const handleRemoveIndicator = (id: string) => {
+    onIndicatorsChange(indicators.filter((ind) => ind.id !== id));
+  };
+
+  const handleParamChange = (paramKey: string, value: number) => {
+    setIndicatorParams((prev) => ({
+      ...prev,
+      [paramKey]: value,
+    }));
   };
 
   const handleTimeFrameChange = (value: string) => {
@@ -155,7 +224,7 @@ const ChartControls = ({
 
             {showIndicators && (
               <div
-                className="absolute top-full left-0 mt-1 w-72 rounded border shadow-lg z-[10000] overflow-hidden"
+                className="absolute top-full left-0 mt-1 w-80 rounded border shadow-lg z-[10000] overflow-hidden"
                 style={{
                   backgroundColor: theme.colors.primary,
                   borderColor: tvColors.border,
@@ -165,78 +234,177 @@ const ChartControls = ({
                       : "0 4px 20px rgba(0, 0, 0, 0.1)",
                 }}
               >
-                <div className="p-3">
+                <div className="p-3 max-h-96 overflow-y-auto">
                   <h3
                     className="text-sm font-semibold mb-3"
                     style={{ color: tvColors.buttonText }}
                   >
                     Technical Indicators
                   </h3>
-                  <div className="space-y-1">
-                    {indicatorOptions.map((ind) => (
-                      <label
-                        key={ind.value}
-                        className="flex items-center gap-3 p-2 rounded cursor-pointer transition-all duration-150"
-                        style={{
-                          backgroundColor: indicators.includes(ind.value)
-                            ? tvColors.accent + "10"
-                            : "transparent",
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!indicators.includes(ind.value)) {
-                            e.currentTarget.style.backgroundColor =
-                              tvColors.buttonHover;
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!indicators.includes(ind.value)) {
-                            e.currentTarget.style.backgroundColor =
-                              "transparent";
-                          }
-                        }}
+
+                  {/* Active Indicators */}
+                  {indicators.length > 0 && (
+                    <div className="mb-4">
+                      <h4
+                        className="text-xs font-medium mb-2"
+                        style={{ color: theme.colors.textSecondary }}
                       >
-                        <div className="relative">
-                          <input
-                            type="checkbox"
-                            checked={indicators.includes(ind.value)}
-                            onChange={() => handleIndicatorChange(ind.value)}
-                            className="sr-only"
-                          />
+                        Active ({indicators.length})
+                      </h4>
+                      <div className="space-y-1">
+                        {indicators.map((indicator) => (
                           <div
-                            className="w-4 h-4 rounded border flex items-center justify-center transition-all duration-150"
+                            key={indicator.id}
+                            className="flex items-center justify-between p-2 rounded"
                             style={{
-                              borderColor: indicators.includes(ind.value)
-                                ? tvColors.accent
-                                : tvColors.border,
-                              backgroundColor: indicators.includes(ind.value)
-                                ? tvColors.accent
-                                : "transparent",
+                              backgroundColor: tvColors.accent + "10",
                             }}
                           >
-                            {indicators.includes(ind.value) && (
-                              <FaCheck className="text-white text-xs" />
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
                             <span
-                              className="font-medium text-sm"
+                              className="text-sm font-medium"
                               style={{ color: tvColors.buttonText }}
                             >
-                              {ind.shortLabel}
+                              {indicator.label}
                             </span>
-                            <span
-                              className="text-xs truncate"
-                              style={{ color: theme.colors.textSecondary }}
+                            <button
+                              onClick={() =>
+                                handleRemoveIndicator(indicator.id)
+                              }
+                              className="text-xs p-1 rounded hover:bg-red-500 hover:text-white transition-colors"
+                              style={{ color: tvColors.danger }}
                             >
-                              {ind.label}
-                            </span>
+                              <FaTimes />
+                            </button>
                           </div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add New Indicator */}
+                  {!addingIndicator ? (
+                    <div className="space-y-1">
+                      <h4
+                        className="text-xs font-medium mb-2"
+                        style={{ color: theme.colors.textSecondary }}
+                      >
+                        Add Indicator
+                      </h4>
+                      {indicatorOptions.map((ind) => (
+                        <button
+                          key={ind.value}
+                          className="w-full flex items-center gap-3 p-2 rounded cursor-pointer transition-all duration-150"
+                          onClick={() => handleAddIndicator(ind.value)}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor =
+                              tvColors.buttonHover;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor =
+                              "transparent";
+                          }}
+                        >
+                          <FaPlus
+                            className="text-xs"
+                            style={{ color: tvColors.accent }}
+                          />
+                          <div className="flex-1 min-w-0 text-left">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="font-medium text-sm"
+                                style={{ color: tvColors.buttonText }}
+                              >
+                                {ind.shortLabel}
+                              </span>
+                              <span
+                                className="text-xs truncate"
+                                style={{ color: theme.colors.textSecondary }}
+                              >
+                                {ind.label}
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    /* Parameter Input Form */
+                    <div className="space-y-3">
+                      <h4
+                        className="text-sm font-medium"
+                        style={{ color: tvColors.buttonText }}
+                      >
+                        Configure{" "}
+                        {
+                          indicatorOptions.find(
+                            (opt) => opt.value === addingIndicator
+                          )?.shortLabel
+                        }
+                      </h4>
+                      {Object.entries(indicatorParams).map(
+                        ([paramKey, paramValue]) => {
+                          const option = indicatorOptions.find(
+                            (opt) => opt.value === addingIndicator
+                          );
+                          const paramLabel =
+                            option?.paramLabels[paramKey] || paramKey;
+                          return (
+                            <div key={paramKey} className="space-y-1">
+                              <label
+                                className="text-xs font-medium"
+                                style={{ color: theme.colors.textSecondary }}
+                              >
+                                {paramLabel}
+                              </label>
+                              <input
+                                type="number"
+                                min="1"
+                                value={paramValue}
+                                onChange={(e) =>
+                                  handleParamChange(
+                                    paramKey,
+                                    parseInt(e.target.value) || 1
+                                  )
+                                }
+                                className="w-full px-2 py-1 text-sm rounded border"
+                                style={{
+                                  backgroundColor: theme.colors.primary,
+                                  borderColor: tvColors.border,
+                                  color: tvColors.buttonText,
+                                }}
+                              />
+                            </div>
+                          );
+                        }
+                      )}
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          onClick={handleConfirmAddIndicator}
+                          className="flex-1 px-3 py-1.5 text-xs rounded font-medium transition-colors"
+                          style={{
+                            backgroundColor: tvColors.accent,
+                            color: "#ffffff",
+                          }}
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAddingIndicator(null);
+                            setIndicatorParams({});
+                          }}
+                          className="flex-1 px-3 py-1.5 text-xs rounded font-medium transition-colors"
+                          style={{
+                            backgroundColor: tvColors.buttonBg,
+                            color: tvColors.buttonText,
+                            border: `1px solid ${tvColors.border}`,
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -268,9 +436,14 @@ const ChartControls = ({
                   e.currentTarget.style.backgroundColor = tvColors.buttonBg;
                 }
               }}
+              title={
+                trendlineMode
+                  ? "Click to exit drawing mode (or complete a trendline to auto-exit)"
+                  : "Click to start drawing trendlines"
+              }
             >
               <FaDrawPolygon className="text-xs" />
-              <span>{trendlineMode ? "Drawing" : "Trendline"}</span>
+              <span>{trendlineMode ? "Exit Drawing" : "Draw Trendline"}</span>
             </button>
 
             <button

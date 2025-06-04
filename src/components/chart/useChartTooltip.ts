@@ -22,17 +22,21 @@ export const useChartTooltip = (
     // Early return if essential data is missing
     if (!latestCandle || latestTime === undefined) return null;
 
-    const findDataAtTime = (
-      data: Array<{ time: number; value: number }>,
-      targetTime: number
-    ) => {
-      return data.find((item) => item.time === targetTime)?.value;
-    };
+    // const findDataAtTime = (
+    //   data: Array<{ time: number; value: number }>,
+    //   targetTime: number
+    // ) => {
+    //   return data.find((item) => item.time === targetTime)?.value;
+    // };
 
     const findMacdDataAtTime = (
-      macdData: IndicatorData["macd"],
+      macdInstances: IndicatorData["macd"],
       targetTime: number
     ) => {
+      if (!macdInstances || macdInstances.length === 0) return undefined;
+
+      // Use first MACD instance for tooltip
+      const macdData = macdInstances[0]?.data;
       if (!macdData) return undefined;
 
       const macd = macdData.macd.find(
@@ -55,6 +59,15 @@ export const useChartTooltip = (
       return undefined;
     };
 
+    // Helper function to find data from multiple instances (use first instance for tooltip)
+    const findIndicatorDataAtTime = (
+      instances: Array<{ data: Array<{ time: number; value: number }> }>,
+      targetTime: number
+    ) => {
+      if (instances.length === 0) return undefined;
+      return instances[0]?.data.find((item) => item.time === targetTime)?.value;
+    };
+
     return {
       time: new Date(latestTime * 1000).toISOString(),
       candle: {
@@ -64,9 +77,9 @@ export const useChartTooltip = (
         close: latestCandle.close ?? 0,
       },
       volume: latestVolume?.value,
-      sma: findDataAtTime(indicatorData.sma, latestTime),
-      ema: findDataAtTime(indicatorData.ema, latestTime),
-      rsi: findDataAtTime(indicatorData.rsi, latestTime),
+      sma: findIndicatorDataAtTime(indicatorData.sma, latestTime),
+      ema: findIndicatorDataAtTime(indicatorData.ema, latestTime),
+      rsi: findIndicatorDataAtTime(indicatorData.rsi, latestTime),
       macd: findMacdDataAtTime(indicatorData.macd, latestTime),
     };
   }, [candles, volumes, indicatorData]);
@@ -115,17 +128,23 @@ export const useChartTooltip = (
       };
 
       // Find indicator data at this time point
-      const findDataAtTime = (
-        data: Array<{ time: number; value: number }>,
+      const findIndicatorDataAtTime = (
+        instances: Array<{ data: Array<{ time: number; value: number }> }>,
         targetTime: any
       ) => {
-        return data.find((item) => item.time === targetTime)?.value;
+        if (instances.length === 0) return undefined;
+        return instances[0]?.data.find((item) => item.time === targetTime)
+          ?.value;
       };
 
       const findMacdDataAtTime = (
-        macdData: IndicatorData["macd"],
+        macdInstances: IndicatorData["macd"],
         targetTime: any
       ) => {
+        if (!macdInstances || macdInstances.length === 0) return undefined;
+
+        // Use first MACD instance for tooltip
+        const macdData = macdInstances[0]?.data;
         if (!macdData) return undefined;
 
         const macd = macdData.macd.find(
@@ -165,9 +184,9 @@ export const useChartTooltip = (
               }
             : undefined,
         volume: findVolumeAtTime(time),
-        sma: findDataAtTime(indicatorData.sma, time),
-        ema: findDataAtTime(indicatorData.ema, time),
-        rsi: findDataAtTime(indicatorData.rsi, time),
+        sma: findIndicatorDataAtTime(indicatorData.sma, time),
+        ema: findIndicatorDataAtTime(indicatorData.ema, time),
+        rsi: findIndicatorDataAtTime(indicatorData.rsi, time),
         macd: findMacdDataAtTime(indicatorData.macd, time),
       };
 

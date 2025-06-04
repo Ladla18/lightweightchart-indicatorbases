@@ -151,28 +151,28 @@ const Chart = ({
       }
 
       // Add overlay indicators on main pane
-      if (indicatorData.sma.length) {
-        createOverlaySeries(chart, theme, "sma", indicatorData.sma, 0);
-      }
+      indicatorData.sma.forEach((smaInstance) => {
+        createOverlaySeries(chart, theme, "sma", smaInstance.data, 0);
+      });
 
-      if (indicatorData.ema.length) {
-        createOverlaySeries(chart, theme, "ema", indicatorData.ema, 0);
-      }
+      indicatorData.ema.forEach((emaInstance) => {
+        createOverlaySeries(chart, theme, "ema", emaInstance.data, 0);
+      });
 
       // Track current pane index for subcharts
       let currentPaneIndex = 1;
 
-      // RSI Pane
-      if (indicators.includes("rsi") && indicatorData.rsi.length) {
-        renderRSIIndicator(chart, theme, indicatorData.rsi, currentPaneIndex);
+      // RSI Pane - render each RSI instance
+      indicatorData.rsi.forEach((rsiInstance) => {
+        renderRSIIndicator(chart, theme, rsiInstance.data, currentPaneIndex);
         currentPaneIndex++;
-      }
+      });
 
-      // MACD Pane
-      if (indicators.includes("macd") && indicatorData.macd) {
-        renderMACDIndicator(chart, theme, indicatorData.macd, currentPaneIndex);
+      // MACD Pane - render each MACD instance
+      indicatorData.macd.forEach((macdInstance) => {
+        renderMACDIndicator(chart, theme, macdInstance.data, currentPaneIndex);
         currentPaneIndex++;
-      }
+      });
 
       chart.timeScale().fitContent();
     }
@@ -212,7 +212,7 @@ const Chart = ({
       {/* Trendline mode indicator */}
       {trendlineMode && (
         <div
-          className="absolute top-2 left-2 px-3 py-1 rounded-md text-sm font-medium z-[1001]"
+          className="absolute top-10 left-2 px-3 py-1 rounded-sm text-xs font-medium z-[1001]"
           style={{
             backgroundColor: theme.colors.accent + "20",
             color: theme.colors.accent,
@@ -224,13 +224,13 @@ const Chart = ({
       )}
 
       {/* Trendline count indicator */}
-      {trendlineState && trendlineState.trendlines.length > 0 && (
+      {trendlineState && trendlineState.trendlines.length > 0 && 2 > 3 && (
         <div
           className="absolute top-2 right-2 px-3 py-1 rounded-md text-sm font-medium z-[1001]"
           style={{
             backgroundColor: theme.colors.secondary,
             color: theme.colors.text,
-            border: `1px solid ${theme.colors.border}`,
+            border: `3px solid ${theme.colors.border}`,
           }}
         >
           {trendlineState.trendlines.length} trendline
