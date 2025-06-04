@@ -420,7 +420,7 @@ export class TrendlineManager {
       this.state.dragMode = hitTest.dragMode;
       this.state.dragStartPos = pixelCoords;
 
-      // Calculate offset for smooth dragging
+      // Calculate offset for smooth dragging based on where user clicked
       if (hitTest.dragMode === "line") {
         const trendline = this.state.trendlines.find(
           (t) => t.id === hitTest.trendlineId
@@ -428,10 +428,13 @@ export class TrendlineManager {
         if (trendline) {
           const startCoords = this.getPixelCoordinates(trendline.startPoint);
           if (startCoords) {
+            // Store the offset from where user clicked to the trendline's start point
+            // This prevents the trendline from jumping when dragging starts
             this.state.dragOffset = {
               x: pixelCoords.x - startCoords.x,
               y: pixelCoords.y - startCoords.y,
             };
+            console.log("🎯 Set drag offset for line:", this.state.dragOffset); // Debug log
           }
         }
       } else {
@@ -520,57 +523,73 @@ export class TrendlineManager {
         break;
 
       case "line":
-        console.log("🔄 Moving entire trendline to:", point.price.toFixed(2)); // Debug log
+        console.log("🔄 Moving entire trendline"); // Debug log
 
-        // For line dragging, we need to move the line relative to where the user clicked
-        // Use the stored dragOffset to maintain the relative position from click point
-        if (!this.state.dragOffset || !this.state.dragStartPos) return;
-
-        const originalStart = originalTrendline.startPoint;
-        const originalEnd = originalTrendline.endPoint;
-
-        if (!originalStart || !originalEnd) return; // Add null checks
+        // For line dragging, work in pixel space to maintain absolute size
+        if (!this.state.dragStartPos || !this.state.dragOffset || !this.canvas)
+          return;
 
         // Get current mouse position in pixels
         const currentMousePixels = this.getPixelCoordinates(point);
         if (!currentMousePixels) return;
 
-        // Calculate the actual target position by accounting for the drag offset
+        // Calculate the target position accounting for the drag offset
+        // This ensures the trendline doesn't jump to align with the cursor
         const targetX = currentMousePixels.x - this.state.dragOffset.x;
         const targetY = currentMousePixels.y - this.state.dragOffset.y;
 
-        // Convert target pixel position back to chart coordinates
-        const targetPoint = this.getPointFromPixelCoordinates(targetX, targetY);
-        if (!targetPoint) return;
+        // Get original start point in pixel coordinates
+        const originalStartPixels = this.getPixelCoordinates(
+          originalTrendline.startPoint
+        );
+        const originalEndPixels = this.getPixelCoordinates(
+          originalTrendline.endPoint
+        );
 
-        // Calculate the offset from original start position
-        const startTimeNum =
-          typeof originalStart.time === "string"
-            ? parseInt(originalStart.time)
-            : Number(originalStart.time);
-        const endTimeNum =
-          typeof originalEnd.time === "string"
-            ? parseInt(originalEnd.time)
-            : Number(originalEnd.time);
-        const targetTimeNum =
-          typeof targetPoint.time === "string"
-            ? parseInt(targetPoint.time)
-            : Number(targetPoint.time);
+        if (!originalStartPixels || !originalEndPixels) return;
 
-        // Calculate deltas
-        const deltaTime = targetTimeNum - startTimeNum;
-        const deltaPrice = targetPoint.price - originalStart.price;
+        // Calculate the movement delta for the start point
+        const rawPixelDeltaX = targetX - originalStartPixels.x;
+        const rawPixelDeltaY = targetY - originalStartPixels.y;
 
-        // Apply the offset to both points
-        trendline.startPoint = {
-          time: (startTimeNum + deltaTime) as Time,
-          price: originalStart.price + deltaPrice,
+        // Apply sensitivity factor to make dragging more controlled
+        const DRAG_SENSITIVITY = 0.8; // Slightly increased for better responsiveness
+        const pixelDeltaX = rawPixelDeltaX * DRAG_SENSITIVITY;
+        const pixelDeltaY = rawPixelDeltaY * DRAG_SENSITIVITY;
+
+        // Apply the same pixel offset to both points to maintain line length/angle
+        const newStartPixels = {
+          x: originalStartPixels.x + pixelDeltaX,
+          y: originalStartPixels.y + pixelDeltaY,
         };
 
-        trendline.endPoint = {
-          time: (endTimeNum + deltaTime) as Time,
-          price: originalEnd.price + deltaPrice,
+        const newEndPixels = {
+          x: originalEndPixels.x + pixelDeltaX,
+          y: originalEndPixels.y + pixelDeltaY,
         };
+
+        // Convert the new pixel positions back to chart coordinates
+        const newStartPoint = this.getPointFromPixelCoordinates(
+          newStartPixels.x,
+          newStartPixels.y
+        );
+        const newEndPoint = this.getPointFromPixelCoordinates(
+          newEndPixels.x,
+          newEndPixels.y
+        );
+
+        if (!newStartPoint || !newEndPoint) return;
+
+        // Update both points with the new positions
+        trendline.startPoint = newStartPoint;
+        trendline.endPoint = newEndPoint;
+
+        console.log("🔄 Moved trendline by pixels:", {
+          pixelDeltaX,
+          pixelDeltaY,
+          sensitivity: DRAG_SENSITIVITY,
+          dragOffset: this.state.dragOffset,
+        }); // Debug log
         break;
     }
 
@@ -855,7 +874,7 @@ export class TrendlineManager {
       if (!chartContainer) return false;
 
       // Get all panes from the chart
-     
+
       // Try to get the main pane boundaries more precisely
       // The main pane (pane 0) contains the candlestick series
       const priceScale = this.candlestickSeries.priceScale();
@@ -1045,7 +1064,6 @@ export class TrendlineManager {
 
       if (topY === null || bottomY === null) return { start, end };
 
- 
       const mainPaneBottom = Math.max(topY, bottomY);
 
       // Add buffer for chart margins
