@@ -5,6 +5,7 @@ import type {
   IPriceLine,
   LineWidth,
   LineStyle,
+  BarPrice,
 } from "lightweight-charts";
 
 export interface TrendlinePoint {
@@ -162,7 +163,15 @@ export class TrendlineManager {
 
     // Chart events - listen for scale and position changes
     this.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
-      console.log("📊 Chart view changed - redrawing trendlines"); // Debug log
+      console.log("📊 Chart time scale changed - redrawing trendlines");
+      // Just redraw, don't reconstruct - let the coordinate system handle it naturally
+      this.redraw();
+    });
+
+    // Also listen for logical range changes which can capture more view changes
+    this.chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      console.log("📊 Chart logical range changed - redrawing trendlines");
+      // Just redraw, don't reconstruct - let the coordinate system handle it naturally
       this.redraw();
     });
 
@@ -173,6 +182,23 @@ export class TrendlineManager {
         this.resizeCanvas();
       });
       resizeObserver.observe(chartContainer);
+
+      // Add a mutation observer to catch price scale changes and other DOM changes
+      const mutationObserver = new MutationObserver(() => {
+        console.log("📊 Chart DOM changed - redrawing trendlines");
+        // Use a small delay to ensure chart has finished updating
+        setTimeout(() => {
+          this.redraw();
+        }, 10);
+      });
+
+      // Observe the chart container for any changes
+      mutationObserver.observe(chartContainer, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["style"], // Watch for style changes that might indicate scale changes
+      });
     }
   }
 
@@ -791,20 +817,12 @@ export class TrendlineManager {
               visibleRange,
             }); // Debug log
           } else {
-            // Fallback: create a reasonable time scale based on current time
-            const now = Math.floor(Date.now() / 1000);
-            const dayInSeconds = 24 * 60 * 60;
-            const timePerPixel = dayInSeconds / chartWidth; // 1 day per chart width
-            const centerTime = now;
-            const leftTime = centerTime - (chartWidth / 2) * timePerPixel;
-            time = (leftTime + x * timePerPixel) as Time;
+            // Simple fallback coordinate
+            time = 100 as any;
           }
         } else {
-          // Ultimate fallback: use a simple linear time scale
-          const now = Math.floor(Date.now() / 1000);
-          const dayInSeconds = 24 * 60 * 60;
-          const timePerPixel = dayInSeconds / rect.width;
-          time = (now - dayInSeconds + x * timePerPixel) as Time;
+          // Ultimate fallback
+          time = 0 as any;
         }
       }
 
@@ -823,7 +841,7 @@ export class TrendlineManager {
             // Allow unlimited extension above and below
             const topPrice = visiblePriceRange.to;
             const calculatedPrice = topPrice - y * pricePerPixel;
-            price = calculatedPrice as any;
+            price = calculatedPrice as BarPrice;
 
             console.log("💰 Price extrapolation:", {
               y,
@@ -834,17 +852,21 @@ export class TrendlineManager {
             }); // Debug log
           } else {
             // Fallback: use a reasonable price scale
-            const centerPrice = 100; // Default center price
-            const priceRange = 200; // Default range (50-150)
+            const centerPrice = 100;
+            const priceRange = 200;
             const pricePerPixel = priceRange / rect.height;
-            price = (centerPrice + priceRange / 2 - y * pricePerPixel) as any;
+            price = (centerPrice +
+              priceRange / 2 -
+              y * pricePerPixel) as BarPrice;
           }
         } else {
           // Ultimate fallback: simple linear price scale
           const centerPrice = 100;
           const priceRange = 200;
           const pricePerPixel = priceRange / rect.height;
-          price = (centerPrice + priceRange / 2 - y * pricePerPixel) as any;
+          price = (centerPrice +
+            priceRange / 2 -
+            y * pricePerPixel) as BarPrice;
         }
       }
 
@@ -854,7 +876,7 @@ export class TrendlineManager {
 
       return {
         time,
-        price,
+        price: price as number,
         x,
         y,
       };
@@ -1182,18 +1204,8 @@ export class TrendlineManager {
               chartWidth,
             }); // Debug log
           } else {
-            // Fallback: use a reasonable time scale
-            const now = Math.floor(Date.now() / 1000);
-            const dayInSeconds = 24 * 60 * 60;
-            const timePerPixel = dayInSeconds / chartWidth;
-            const centerTime = now;
-            const leftTime = centerTime - (chartWidth / 2) * timePerPixel;
-
-            const pointTimeNum =
-              typeof point.time === "string"
-                ? parseInt(point.time)
-                : Number(point.time);
-            x = ((pointTimeNum - leftTime) / timePerPixel) as any;
+            // Simple fallback coordinate
+            x = 100 as any;
           }
         } else {
           // Ultimate fallback
@@ -1534,17 +1546,18 @@ export class TrendlineManager {
     this.clearAll();
   }
 
+  // Method to convert pixel coordinates to logical chart coordinates (time/price)
+  // This includes extrapolation for points drawn outside the visible data range.
   private getPointFromPixelCoordinates(
     x: number,
     y: number
   ): TrendlinePoint | null {
     try {
       const timeScale = this.chart.timeScale();
-
       let time = timeScale.coordinateToTime(x);
       let price = this.candlestickSeries.coordinateToPrice(y);
 
-      // Handle extrapolation for coordinates outside visible range
+      // Extrapolation for time if x-coordinate is outside the time scale's data range
       if (time === null) {
         const visibleRange = timeScale.getVisibleRange();
         if (visibleRange && this.canvas) {
@@ -1554,16 +1567,23 @@ export class TrendlineManager {
               ? visibleRange.to - visibleRange.from
               : 0;
           const chartWidth = this.canvas.width / (window.devicePixelRatio || 1);
-          const timePerPixel = timeRange / chartWidth;
-
-          const leftTime =
-            typeof visibleRange.from === "number" ? visibleRange.from : 0;
-          time = (leftTime + x * timePerPixel) as Time;
+          if (chartWidth > 0 && timeRange > 0) {
+            // Ensure chartWidth and timeRange are positive
+            const timePerPixel = timeRange / chartWidth;
+            const leftTime =
+              typeof visibleRange.from === "number" ? visibleRange.from : 0;
+            time = (leftTime + x * timePerPixel) as Time;
+          } else {
+            // Fallback if chartWidth or timeRange is not positive
+            time = (visibleRange.from || Math.floor(Date.now() / 1000)) as Time;
+          }
         } else {
+          // Fallback if visibleRange or canvas is not available
           time = Math.floor(Date.now() / 1000) as Time;
         }
       }
 
+      // Extrapolation for price if y-coordinate is outside the price scale's data range
       if (price === null) {
         const priceScale = this.candlestickSeries.priceScale();
         const visiblePriceRange = priceScale.getVisibleRange();
@@ -1571,13 +1591,18 @@ export class TrendlineManager {
           const priceRange = visiblePriceRange.to - visiblePriceRange.from;
           const chartHeight =
             this.canvas.height / (window.devicePixelRatio || 1);
-          const pricePerPixel = priceRange / chartHeight;
-
-          const topPrice = visiblePriceRange.to;
-          const calculatedPrice = topPrice - y * pricePerPixel;
-          price = calculatedPrice as any;
+          if (chartHeight > 0 && priceRange !== 0) {
+            // Ensure chartHeight is positive and priceRange is not zero
+            const pricePerPixel = priceRange / chartHeight;
+            const topPrice = visiblePriceRange.to;
+            price = (topPrice - y * pricePerPixel) as BarPrice;
+          } else {
+            // Fallback if chartHeight is not positive or priceRange is zero
+            price = (visiblePriceRange.from || 100) as BarPrice;
+          }
         } else {
-          price = 100 as any;
+          // Fallback if visiblePriceRange or canvas is not available
+          price = 100 as BarPrice;
         }
       }
 
@@ -1585,7 +1610,7 @@ export class TrendlineManager {
 
       return {
         time,
-        price,
+        price: price as number, // Cast to number for TrendlinePoint interface
       };
     } catch (error) {
       console.warn(
